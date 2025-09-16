@@ -322,7 +322,7 @@ def main():
         'Daily Interest', 'Cumulative Interest'
     ]
     
-    st.dataframe(table_df, width='stretch', height=400)
+    st.dataframe(table_df, use_container_width=True, height=400)
     
     # Charts
     col1, col2 = st.columns(2)
@@ -330,12 +330,12 @@ def main():
     with col1:
         st.subheader("📈 Balance & Interest Trend")
         balance_chart = create_balance_interest_chart(daily_summary)
-        st.plotly_chart(balance_chart, width='stretch')
+        st.plotly_chart(balance_chart, use_container_width=True)
     
     with col2:
         st.subheader("📊 Daily Transaction Activity")
         activity_chart = create_daily_activity_chart(daily_summary)
-        st.plotly_chart(activity_chart, width='stretch')
+        st.plotly_chart(activity_chart, use_container_width=True)
     
     # Interest calculation summary
     st.subheader("💰 Interest Calculation Summary")
@@ -357,22 +357,16 @@ def main():
     # Interest breakdown
     st.subheader("📋 Interest Breakdown")
     
-    # Calculate old vs new interest
-    old_calculation = group_transactions_by_date(selected_customer['transactions'])
-    old_interest = old_calculation['balance'].sum() * (interest_rate / 365 / 100) * len(old_calculation)
+    # Show current interest calculation
     new_interest = daily_summary['cumulative_interest'].iloc[-1] if not daily_summary.empty else 0
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.info(f"**Old Calculation (Wrong):** {format_currency(old_interest)}")
+        st.success(f"**Total Interest Calculated:** {format_currency(new_interest)}")
     
     with col2:
-        st.success(f"**New Calculation (Correct):** {format_currency(new_interest)}")
-    
-    with col3:
-        difference = new_interest - old_interest
-        st.warning(f"**Difference:** {format_currency(difference)}")
+        st.info(f"**Interest Rate Applied:** {interest_rate}% per annum")
     
     interest_summary = daily_summary[daily_summary['interest'] > 0].copy()
     

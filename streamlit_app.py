@@ -18,18 +18,17 @@ def load_customer_data():
     with open('customer_data.json', 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def calculate_profit(product_name, qty, amount):
-    """Calculate profit based on product type and quantity/amount"""
+def calculate_profit(product_name, qty, amount, profit_margins):
+    """Calculate profit based on product type and dynamic profit margins"""
     if product_name == "Diesel":
-        return qty * 3  # 3 rupees per liter
+        return qty * profit_margins['diesel_per_liter']
     elif product_name == "Petrol":
-        return qty * 2  # 2 rupees per liter
+        return qty * profit_margins['petrol_per_liter']
     elif product_name == "4T 20W-40 - 1Ltr":
-        return amount * 0.15  # 15% of total amount
+        return amount * profit_margins['oil_percentage'] / 100
     else:
-        # For other products like IOC CLEARBLUE, TRANSFLUID A, etc.
-        # You can add specific profit calculations here if needed
-        return 0  # Default to 0 profit for unknown products
+        # For other products - use the "others" margin
+        return qty * profit_margins['others_per_liter']
 
 def main():
     st.title("⛽ Shivam Petroleum - Customer Analysis Dashboard")
@@ -38,8 +37,47 @@ def main():
     # Load data
     customers = load_customer_data()
     
-    # Sidebar for customer selection
+    # Sidebar for customer selection and profit settings
     st.sidebar.header("📊 Analysis Options")
+    
+    # Profit margin settings
+    st.sidebar.subheader("💰 Profit Margins")
+    profit_margins = {
+        'diesel_per_liter': st.sidebar.number_input(
+            "Diesel (₹ per liter):",
+            min_value=0.0,
+            max_value=50.0,
+            value=3.0,
+            step=0.1,
+            help="Profit margin per liter of diesel"
+        ),
+        'petrol_per_liter': st.sidebar.number_input(
+            "Petrol (₹ per liter):",
+            min_value=0.0,
+            max_value=50.0,
+            value=2.0,
+            step=0.1,
+            help="Profit margin per liter of petrol"
+        ),
+        'oil_percentage': st.sidebar.number_input(
+            "Oil (percentage):",
+            min_value=0.0,
+            max_value=100.0,
+            value=15.0,
+            step=0.1,
+            help="Profit margin as percentage for oil products"
+        ),
+        'others_per_liter': st.sidebar.number_input(
+            "Others (₹ per liter):",
+            min_value=0.0,
+            max_value=50.0,
+            value=1.0,
+            step=0.1,
+            help="Profit margin per liter for other products"
+        )
+    }
+    
+    st.sidebar.markdown("---")
     
     # Customer selection
     customer_names = [customer['customer_name'] for customer in customers]
@@ -86,7 +124,7 @@ def main():
         with col5:
             # Calculate total profit for this customer
             total_profit = sum(
-                calculate_profit(transaction['product_name'], transaction['qty'], transaction['amount'])
+                calculate_profit(transaction['product_name'], transaction['qty'], transaction['amount'], profit_margins)
                 for transaction in selected_customer_data['transactions']
             )
             st.metric(
@@ -102,7 +140,7 @@ def main():
         
         # Add profit column
         transactions_df['profit'] = transactions_df.apply(
-            lambda row: calculate_profit(row['product_name'], row['qty'], row['amount']), 
+            lambda row: calculate_profit(row['product_name'], row['qty'], row['amount'], profit_margins), 
             axis=1
         )
         
@@ -208,7 +246,7 @@ def main():
             for customer in customers:
                 # Calculate total profit for this customer
                 total_profit = sum(
-                    calculate_profit(transaction['product_name'], transaction['qty'], transaction['amount'])
+                    calculate_profit(transaction['product_name'], transaction['qty'], transaction['amount'], profit_margins)
                     for transaction in customer['transactions']
                 )
                 

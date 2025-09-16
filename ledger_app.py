@@ -207,12 +207,12 @@ def display_customer_overview(customer):
     # Balance trend chart
     st.subheader("📊 Balance Trend")
     balance_chart = create_balance_trend_chart(customer)
-    st.plotly_chart(balance_chart, width='stretch')
+    st.plotly_chart(balance_chart, use_container_width=True)
     
     # Transaction analysis
     st.subheader("📅 Monthly Transaction Analysis")
     transaction_chart = create_transaction_analysis(customer)
-    st.plotly_chart(transaction_chart, width='stretch')
+    st.plotly_chart(transaction_chart, use_container_width=True)
 
 def display_transaction_details(customer):
     """Display detailed transaction table"""
@@ -234,7 +234,7 @@ def display_transaction_details(customer):
     
     st.dataframe(
         display_df,
-        width='stretch',
+        use_container_width=True,
         height=400
     )
     
@@ -275,7 +275,7 @@ def display_balance_analysis(customer):
             names=balance_counts.index,
             title="Balance Distribution"
         )
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         st.subheader("Transaction Frequency")
@@ -290,7 +290,7 @@ def display_balance_analysis(customer):
             labels={'x': 'Date', 'y': 'Transaction Count'}
         )
         fig.update_xaxes(tickangle=45)
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
     
     # Balance statistics
     st.subheader("📊 Balance Statistics")
@@ -357,7 +357,7 @@ def display_all_customers_summary(customers):
     )
     
     display_df = df_sorted[['Customer Name', 'Transactions', 'Outstanding', 'Status']].head(10)
-    st.dataframe(display_df, width='stretch')
+    st.dataframe(display_df, use_container_width=True)
     
     # Outstanding amount chart
     st.subheader("📊 Outstanding Amounts by Customer")
@@ -372,7 +372,7 @@ def display_all_customers_summary(customers):
     )
     fig.update_xaxes(tickangle=45)
     fig.update_yaxes(tickformat='₹,.0f')
-    st.plotly_chart(fig, width='stretch')
+    st.plotly_chart(fig, use_container_width=True)
     
     # Download summary
     csv = df.to_csv(index=False)

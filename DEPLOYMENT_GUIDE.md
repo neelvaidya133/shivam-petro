@@ -7,7 +7,9 @@
 **Best for:** Quick deployment, free hosting, easy updates
 
 #### Steps:
+
 1. **Push to GitHub:**
+
    ```bash
    git init
    git add .
@@ -17,6 +19,7 @@
    ```
 
 2. **Deploy on Streamlit Cloud:**
+
    - Go to [share.streamlit.io](https://share.streamlit.io)
    - Sign in with GitHub
    - Click "New app"
@@ -33,10 +36,12 @@
 **Best for:** Professional deployment, full control, scalability
 
 #### Files Created:
+
 - `Dockerfile` ✅
 - `docker-compose.yml` ✅
 
 #### Steps:
+
 ```bash
 # Build and run
 docker-compose up -d
@@ -45,6 +50,7 @@ docker-compose up -d
 ```
 
 #### Deploy to Cloud:
+
 - **AWS ECS/Fargate**
 - **Google Cloud Run**
 - **Azure Container Instances**
@@ -57,8 +63,10 @@ docker-compose up -d
 **Best for:** Quick cloud deployment, managed hosting
 
 #### Steps:
+
 1. **Install Heroku CLI**
 2. **Create Heroku app:**
+
    ```bash
    heroku create shivam-petroleum-dashboards
    ```
@@ -77,6 +85,7 @@ docker-compose up -d
 **Best for:** Internal company use, local network access
 
 #### Steps:
+
 ```bash
 # Run on all network interfaces
 streamlit run main_app.py --server.address=0.0.0.0 --server.port=8501
@@ -91,8 +100,10 @@ streamlit run main_app.py --server.address=0.0.0.0 --server.port=8501
 **Best for:** Full control, custom domain, production use
 
 #### Steps:
+
 1. **Set up server** (Ubuntu/CentOS)
 2. **Install dependencies:**
+
    ```bash
    sudo apt update
    sudo apt install python3 python3-pip nginx
@@ -100,6 +111,7 @@ streamlit run main_app.py --server.address=0.0.0.0 --server.port=8501
    ```
 
 3. **Run with systemd service:**
+
    ```bash
    sudo systemctl start shivam-dashboard
    sudo systemctl enable shivam-dashboard
@@ -112,18 +124,21 @@ streamlit run main_app.py --server.address=0.0.0.0 --server.port=8501
 ## 🎯 Recommended Deployment Strategy
 
 ### For Quick Start: Streamlit Cloud
+
 - ✅ Free
 - ✅ Easy setup
 - ✅ Automatic updates
 - ✅ HTTPS included
 
 ### For Production: Docker + Cloud
+
 - ✅ Professional
 - ✅ Scalable
 - ✅ Full control
 - ✅ Custom domain
 
 ### For Internal Use: Local Network
+
 - ✅ No internet required
 - ✅ Fast access
 - ✅ Full control
@@ -131,6 +146,7 @@ streamlit run main_app.py --server.address=0.0.0.0 --server.port=8501
 ---
 
 ## 📁 Project Structure
+
 ```
 shivamPetroleum/
 ├── main_app.py                 # Main multi-page app
@@ -156,6 +172,7 @@ shivamPetroleum/
 ## 🔧 Configuration Options
 
 ### Environment Variables
+
 ```bash
 # Set in your deployment environment
 STREAMLIT_SERVER_PORT=8501
@@ -164,12 +181,13 @@ STREAMLIT_THEME_BASE=light
 ```
 
 ### Custom Domain (for VPS/Server)
+
 ```nginx
 # Nginx configuration
 server {
     listen 80;
     server_name your-domain.com;
-    
+
     location / {
         proxy_pass http://localhost:8501;
         proxy_http_version 1.1;
@@ -188,6 +206,7 @@ server {
 ## 🚀 Quick Start Commands
 
 ### Local Development
+
 ```bash
 # Start main app
 streamlit run main_app.py
@@ -203,6 +222,7 @@ start_all.bat         # Windows
 ```
 
 ### Docker Deployment
+
 ```bash
 # Build and run
 docker-compose up -d
@@ -215,6 +235,7 @@ docker-compose down
 ```
 
 ### Cloud Deployment
+
 ```bash
 # Streamlit Cloud (after GitHub push)
 # Just use the web interface at share.streamlit.io
@@ -250,6 +271,7 @@ After deployment, access your dashboards at:
 ## 📞 Support
 
 For deployment issues or questions:
+
 1. Check the logs: `docker-compose logs -f`
 2. Verify data files are present
 3. Check port availability

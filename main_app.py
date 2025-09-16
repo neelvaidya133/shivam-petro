@@ -1,6 +1,8 @@
 import streamlit as st
 import json
 import os
+import pandas as pd
+import plotly.express as px
 
 # Page config
 st.set_page_config(
@@ -74,7 +76,8 @@ def main():
         """)
         
         if st.button("Open Ledger Dashboard", use_container_width=True):
-            st.switch_page("pages/1_📊_Account_Ledger.py")
+            st.info("Please navigate to the Account Ledger page from the sidebar or use the direct link.")
+            st.markdown("[📊 Account Ledger](pages/1_📊_Account_Ledger.py)")
     
     with col2:
         st.markdown("### 💰 Interest Calculator")
@@ -86,7 +89,8 @@ def main():
         """)
         
         if st.button("Open Interest Calculator", use_container_width=True):
-            st.switch_page("pages/2_💰_Interest_Calculator.py")
+            st.info("Please navigate to the Interest Calculator page from the sidebar or use the direct link.")
+            st.markdown("[💰 Interest Calculator](pages/2_💰_Interest_Calculator.py)")
     
     with col3:
         st.markdown("### 📈 Customer Analysis")
@@ -98,7 +102,8 @@ def main():
         """)
         
         if st.button("Open Analysis Dashboard", use_container_width=True):
-            st.switch_page("pages/3_📈_Customer_Analysis.py")
+            st.info("Please navigate to the Customer Analysis page from the sidebar or use the direct link.")
+            st.markdown("[📈 Customer Analysis](pages/3_📈_Customer_Analysis.py)")
     
     st.markdown("---")
     
@@ -126,14 +131,13 @@ def main():
         
         with col2:
             # Outstanding amount chart
-            import plotly.express as px
             fig = px.bar(
                 outstanding_df.head(5),
                 x='Customer',
                 y='Outstanding',
                 title="Top 5 Outstanding Amounts"
             )
-            fig.update_xaxis(tickangle=45)
+            fig.update_xaxes(tickangle=45)
             st.plotly_chart(fig, use_container_width=True)
     
     # Footer
@@ -146,5 +150,4 @@ def main():
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
-    import pandas as pd
     main()
