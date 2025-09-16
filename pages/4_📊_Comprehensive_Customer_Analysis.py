@@ -374,11 +374,21 @@ def main():
         step=0.1
     )
     
+    # Financial year filter
+    st.sidebar.subheader("📅 Financial Year Filter")
+    st.info("📅 **Current Data Period:** 01-04-2024 to 31-03-2025 (FY 2024-2025)")
+    
+    # Set the actual date range - only 2024-2025 is available
+    fy_start_date = pd.to_datetime('2024-04-01')
+    fy_end_date = pd.to_datetime('2025-03-31')
+    fy_display = "2024-2025"
+    
     # Calculate comprehensive metrics
     metrics = calculate_comprehensive_metrics(selected_customer, profit_margins, interest_rate)
     
     # Main content
     st.header(f"📊 Comprehensive Analysis - {selected_customer['customer_name']}")
+    st.info(f"📅 **Analysis Period:** {fy_start_date.strftime('%d-%m-%Y')} to {fy_end_date.strftime('%d-%m-%Y')} (FY {fy_display})")
     
     # Key Metrics Row 1
     col1, col2, col3, col4, col5 = st.columns(5)

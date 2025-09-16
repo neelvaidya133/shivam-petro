@@ -64,7 +64,7 @@ def main():
     # Dashboard selection
     st.subheader("🚀 Select Dashboard")
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown("### 📊 Account Ledger")
@@ -105,7 +105,14 @@ def main():
             st.info("Please navigate to the Customer Analysis page from the sidebar or use the direct link.")
             st.markdown("[📈 Customer Analysis](pages/3_📈_Customer_Analysis.py)")
     
-    with col4:
+    st.markdown("---")
+    
+    # Advanced Analysis Section
+    st.subheader("🚀 Advanced Analysis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
         st.markdown("### 📊 Comprehensive Analysis")
         st.markdown("""
         - Merged interest & sales data
@@ -117,6 +124,20 @@ def main():
         if st.button("Open Comprehensive Dashboard", use_container_width=True):
             st.info("Please navigate to the Comprehensive Analysis page from the sidebar or use the direct link.")
             st.markdown("[📊 Comprehensive Analysis](pages/4_📊_Comprehensive_Customer_Analysis.py)")
+    
+    with col2:
+        st.markdown("### 🏢 Company Analysis")
+        st.markdown("""
+        - Company-wide metrics
+        - Customer contribution analysis
+        - Top & worst customers
+        - Financial year analysis
+        - Pie charts & visualizations
+        """)
+        
+        if st.button("Open Company Dashboard", use_container_width=True):
+            st.info("Please navigate to the Company Analysis page from the sidebar or use the direct link.")
+            st.markdown("[🏢 Company Analysis](pages/5_🏢_Company_Analysis.py)")
     
     st.markdown("---")
     
