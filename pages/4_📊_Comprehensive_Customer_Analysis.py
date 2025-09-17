@@ -169,6 +169,85 @@ def merge_customer_data(ledger_customers, sales_customers):
     
     return merged_data
 
+def calculate_payment_time_analysis(ledger_data):
+    """Calculate detailed payment time analysis using FIFO logic"""
+    transactions_df = pd.DataFrame(ledger_data['transactions'])
+    transactions_df['date'] = pd.to_datetime(transactions_df['date'])
+    
+    # Sort by date to ensure chronological order
+    transactions_df = transactions_df.sort_values('date').reset_index(drop=True)
+    
+    # Track individual debts and their payment status
+    debt_queue = []  # FIFO queue of outstanding debts
+    payment_analysis = []  # Store payment time analysis
+    
+    # Process opening balance as first debt if it exists
+    opening_balance = ledger_data['opening_balance']['amount']
+    if opening_balance > 0:
+        debt_queue.append({
+            'debt_id': 'opening_balance',
+            'amount': opening_balance,
+            'date_created': transactions_df['date'].iloc[0],
+            'amount_paid': 0,
+            'amount_remaining': opening_balance,
+            'payment_dates': [],
+            'days_to_pay': None
+        })
+    
+    # Process each transaction
+    for idx, row in transactions_df.iterrows():
+        current_date = row['date']
+        debit_amount = row['debit']
+        credit_amount = row['credit']
+        
+        # Add new debt if there's a debit
+        if debit_amount > 0:
+            debt_queue.append({
+                'debt_id': f'debt_{idx}',
+                'amount': debit_amount,
+                'date_created': current_date,
+                'amount_paid': 0,
+                'amount_remaining': debit_amount,
+                'payment_dates': [],
+                'days_to_pay': None
+            })
+        
+        # Process payment if there's a credit
+        if credit_amount > 0:
+            remaining_payment = credit_amount
+            
+            # Apply payment using FIFO (First In, First Out)
+            while remaining_payment > 0 and debt_queue:
+                current_debt = debt_queue[0]
+                
+                if current_debt['amount_remaining'] <= remaining_payment:
+                    # This debt is fully paid
+                    payment_amount = current_debt['amount_remaining']
+                    current_debt['amount_paid'] += payment_amount
+                    current_debt['amount_remaining'] = 0
+                    current_debt['payment_dates'].append(current_date)
+                    current_debt['days_to_pay'] = (current_date - current_debt['date_created']).days
+                    
+                    # Move to completed analysis
+                    payment_analysis.append(current_debt.copy())
+                    
+                    # Remove from queue
+                    debt_queue.pop(0)
+                    remaining_payment -= payment_amount
+                    
+                else:
+                    # Partial payment on this debt
+                    current_debt['amount_paid'] += remaining_payment
+                    current_debt['amount_remaining'] -= remaining_payment
+                    current_debt['payment_dates'].append(current_date)
+                    remaining_payment = 0
+    
+    # Add any remaining unpaid debts
+    for debt in debt_queue:
+        payment_analysis.append(debt)
+    
+    return payment_analysis
+
 def calculate_comprehensive_metrics(merged_customer, profit_margins, interest_rate):
     """Calculate all comprehensive metrics for a customer"""
     ledger_data = merged_customer['ledger_data']
@@ -200,30 +279,58 @@ def calculate_comprehensive_metrics(merged_customer, profit_margins, interest_ra
     # 7. High Outstanding Amount of Customer
     high_outstanding = daily_summary['outstanding_balance'].max() if not daily_summary.empty else 0
     
-    # 8. Average Payback Period (in days)
-    # Calculate days between transactions and payments
-    transactions_df = pd.DataFrame(ledger_data['transactions'])
-    transactions_df['date'] = pd.to_datetime(transactions_df['date'])
+    # 8. Payment Time Analysis (NEW)
+    payment_analysis = calculate_payment_time_analysis(ledger_data)
     
-    # Find days between debit and credit transactions
-    debit_dates = transactions_df[transactions_df['debit'] > 0]['date']
-    credit_dates = transactions_df[transactions_df['credit'] > 0]['date']
+    # Calculate payment time metrics
+    paid_debts = [debt for debt in payment_analysis if debt['days_to_pay'] is not None]
+    unpaid_debts = [debt for debt in payment_analysis if debt['days_to_pay'] is None]
     
-    payback_periods = []
-    for debit_date in debit_dates:
-        # Find next credit date after this debit
-        future_credits = credit_dates[credit_dates > debit_date]
-        if not future_credits.empty:
-            next_credit = future_credits.min()
-            days_diff = (next_credit - debit_date).days
-            payback_periods.append(days_diff)
+    avg_payment_time = np.mean([debt['days_to_pay'] for debt in paid_debts]) if paid_debts else 0
+    max_payment_time = max([debt['days_to_pay'] for debt in paid_debts]) if paid_debts else 0
+    min_payment_time = min([debt['days_to_pay'] for debt in paid_debts]) if paid_debts else 0
     
-    avg_payback_period = np.mean(payback_periods) if payback_periods else 0
+    # 9. Profit Efficiency (PE) Ratio - NEW
+    pe_ratio = (total_interest / total_profit * 100) if total_profit > 0 else 0
     
-    # 9. Profit to Interest Ratio
-    profit_to_interest_ratio = total_profit / total_interest if total_interest > 0 else 0
+    # 10. Customer Risk Score (0-100, lower is better)
+    # Based on payment time, outstanding amount, and payment rate
+    avg_payment_time_score = min(100, max(0, 100 - (avg_payment_time / 30 * 100)))  # Penalty for longer payment times
+    outstanding_ratio = (closing_balance / total_profit * 100) if total_profit > 0 else 0
+    outstanding_score = min(100, max(0, 100 - outstanding_ratio))  # Penalty for high outstanding
+    payment_rate_score = (len(paid_debts) / len(payment_analysis) * 100) if payment_analysis else 0
     
-    # 10. Actual Profit and Net Profit
+    risk_score = (avg_payment_time_score * 0.4 + outstanding_score * 0.4 + payment_rate_score * 0.2)
+    
+    # 11. Investment Efficiency Ratio
+    # How much we need to invest (outstanding) to make ₹100 profit
+    investment_efficiency = (closing_balance / total_profit * 100) if total_profit > 0 else 0
+    
+    # 12. Customer Profitability Score (0-100, higher is better)
+    # Based on profit, payment behavior, and risk
+    profit_score = min(100, (total_profit / 100000 * 100))  # Normalize profit (₹1L = 100 points)
+    payment_behavior_score = min(100, max(0, 100 - (avg_payment_time / 30 * 50)))  # Payment time impact
+    profitability_score = (profit_score * 0.5 + payment_behavior_score * 0.3 + (100 - risk_score) * 0.2)
+    
+    # 13. Return on Investment (ROI) for this customer
+    total_investment = opening_balance + sum([debt['amount'] for debt in payment_analysis if debt['debt_id'] != 'opening_balance'])
+    roi = ((total_profit - total_interest) / total_investment * 100) if total_investment > 0 else 0
+    
+    # 14. Customer Business Value Rating
+    if profitability_score >= 80 and risk_score <= 30:
+        business_rating = "Excellent"
+        rating_color = "green"
+    elif profitability_score >= 60 and risk_score <= 50:
+        business_rating = "Good"
+        rating_color = "blue"
+    elif profitability_score >= 40 and risk_score <= 70:
+        business_rating = "Average"
+        rating_color = "orange"
+    else:
+        business_rating = "Poor"
+        rating_color = "red"
+    
+    # 15. Actual Profit and Net Profit
     actual_profit = total_profit  # This is the gross profit from sales
     net_profit = total_profit - total_interest  # Net profit after interest
     
@@ -235,11 +342,22 @@ def calculate_comprehensive_metrics(merged_customer, profit_margins, interest_ra
         'closing_balance': closing_balance,
         'avg_outstanding': avg_outstanding,
         'high_outstanding': high_outstanding,
-        'avg_payback_period': avg_payback_period,
-        'profit_to_interest_ratio': profit_to_interest_ratio,
+        'avg_payback_period': avg_payment_time,  # Updated to use new calculation
+        'pe_ratio': pe_ratio,  # NEW: Profit Efficiency Ratio
+        'risk_score': risk_score,  # NEW: Customer Risk Score
+        'investment_efficiency': investment_efficiency,  # NEW: Investment Efficiency
+        'profitability_score': profitability_score,  # NEW: Customer Profitability Score
+        'roi': roi,  # NEW: Return on Investment
+        'business_rating': business_rating,  # NEW: Business Value Rating
+        'rating_color': rating_color,  # NEW: Rating Color
         'actual_profit': actual_profit,
         'net_profit': net_profit,
-        'daily_summary': daily_summary
+        'daily_summary': daily_summary,
+        'payment_analysis': payment_analysis,
+        'paid_debts': paid_debts,
+        'unpaid_debts': unpaid_debts,
+        'max_payment_time': max_payment_time,
+        'min_payment_time': min_payment_time
     }
 
 def create_comprehensive_charts(metrics, daily_summary):
@@ -284,7 +402,74 @@ def create_comprehensive_charts(metrics, daily_summary):
         fig_interest.update_yaxes(tickformat='₹,.0f')
         charts['interest_trend'] = fig_interest
     
-    # 3. Profit vs Interest Comparison
+    # 3. Payment Time Analysis Chart
+    if metrics['paid_debts']:
+        payment_times = [debt['days_to_pay'] for debt in metrics['paid_debts']]
+        debt_amounts = [debt['amount'] for debt in metrics['paid_debts']]
+        
+        fig_payment_time = go.Figure()
+        fig_payment_time.add_trace(go.Scatter(
+            x=payment_times,
+            y=debt_amounts,
+            mode='markers',
+            name='Payment Time vs Debt Amount',
+            marker=dict(
+                size=10,
+                color=payment_times,
+                colorscale='RdYlGn_r',
+                showscale=True,
+                colorbar=dict(title="Days to Pay")
+            ),
+            text=[f"Debt: {format_currency(amt)}<br>Days: {days}" for amt, days in zip(debt_amounts, payment_times)],
+            hovertemplate='%{text}<extra></extra>'
+        ))
+        fig_payment_time.update_layout(
+            title="Payment Time Analysis - Debt Amount vs Days to Pay",
+            xaxis_title="Days to Pay",
+            yaxis_title="Debt Amount (₹)",
+            height=400
+        )
+        fig_payment_time.update_yaxes(tickformat='₹,.0f')
+        charts['payment_time_analysis'] = fig_payment_time
+    
+    # 4. Payment Time Distribution
+    if metrics['paid_debts']:
+        payment_times = [debt['days_to_pay'] for debt in metrics['paid_debts']]
+        
+        fig_distribution = go.Figure()
+        fig_distribution.add_trace(go.Histogram(
+            x=payment_times,
+            nbinsx=20,
+            name='Payment Time Distribution',
+            marker_color='lightblue'
+        ))
+        fig_distribution.update_layout(
+            title="Distribution of Payment Times",
+            xaxis_title="Days to Pay",
+            yaxis_title="Number of Debts",
+            height=400
+        )
+        charts['payment_time_distribution'] = fig_distribution
+    
+    # 5. Outstanding vs Paid Debts
+    if metrics['payment_analysis']:
+        paid_count = len(metrics['paid_debts'])
+        unpaid_count = len(metrics['unpaid_debts'])
+        
+        fig_debt_status = go.Figure()
+        fig_debt_status.add_trace(go.Pie(
+            labels=['Paid Debts', 'Unpaid Debts'],
+            values=[paid_count, unpaid_count],
+            hole=0.3,
+            marker_colors=['#2E8B57', '#DC143C']
+        ))
+        fig_debt_status.update_layout(
+            title="Debt Payment Status",
+            height=400
+        )
+        charts['debt_status_pie'] = fig_debt_status
+    
+    # 6. Profit vs Interest Comparison
     fig_comparison = go.Figure()
     categories = ['Total Profit', 'Total Interest', 'Net Profit']
     values = [metrics['total_profit'], metrics['total_interest'], metrics['net_profit']]
@@ -311,6 +496,24 @@ def create_comprehensive_charts(metrics, daily_summary):
 def main():
     st.title("📊 Shivam Petroleum - Comprehensive Customer Analysis")
     st.markdown("---")
+    
+    # Add custom CSS for better text visibility
+    st.markdown("""
+    <style>
+    .metric-container {
+        word-wrap: break-word;
+        white-space: normal;
+    }
+    .metric-container .metric-value {
+        font-size: 1.2rem !important;
+        line-height: 1.3 !important;
+    }
+    .metric-container .metric-label {
+        font-size: 0.9rem !important;
+        line-height: 1.2 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     # Load data
     ledger_customers = load_ledger_data()
@@ -440,20 +643,98 @@ def main():
     
     with col3:
         st.metric(
-            "Avg Payback Period",
+            "Avg Payment Time",
             f"{metrics['avg_payback_period']:.1f} days"
         )
     
     with col4:
         st.metric(
-            "Profit/Interest Ratio",
-            f"{metrics['profit_to_interest_ratio']:.2f}"
+            "PE Ratio",
+            f"{metrics['pe_ratio']:.1f}%"
         )
     
     with col5:
         st.metric(
             "Net Profit",
             format_currency(metrics['net_profit'])
+        )
+    
+    # Key Metrics Row 3 - Payment Time Analysis
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric(
+            "Paid Debts",
+            f"{len(metrics['paid_debts'])}"
+        )
+    
+    with col2:
+        st.metric(
+            "Unpaid Debts",
+            f"{len(metrics['unpaid_debts'])}"
+        )
+    
+    with col3:
+        st.metric(
+            "Max Payment Time",
+            f"{metrics['max_payment_time']:.0f} days"
+        )
+    
+    with col4:
+        st.metric(
+            "Min Payment Time",
+            f"{metrics['min_payment_time']:.0f} days"
+        )
+    
+    with col5:
+        total_debts = len(metrics['paid_debts']) + len(metrics['unpaid_debts'])
+        payment_rate = (len(metrics['paid_debts']) / total_debts * 100) if total_debts > 0 else 0
+        st.metric(
+            "Payment Rate",
+            f"{payment_rate:.1f}%"
+        )
+    
+    # Key Metrics Row 4 - Business Intelligence
+    st.markdown("### 🎯 Business Intelligence Metrics")
+    col1, col2, col3, col4, col5 = st.columns([1.2, 1.2, 1.5, 1, 1.1])
+    
+    with col1:
+        st.metric(
+            "Risk Score",
+            f"{metrics['risk_score']:.0f}/100",
+            delta=f"{'Low Risk' if metrics['risk_score'] <= 30 else 'High Risk' if metrics['risk_score'] >= 70 else 'Medium Risk'}"
+        )
+    
+    with col2:
+        st.metric(
+            "Profitability Score",
+            f"{metrics['profitability_score']:.0f}/100"
+        )
+    
+    with col3:
+        st.metric(
+            "Investment Efficiency",
+            f"₹{metrics['investment_efficiency']:.0f}",
+            help="Amount invested per ₹100 profit"
+        )
+    
+    with col4:
+        st.metric(
+            "ROI",
+            f"{metrics['roi']:.1f}%"
+        )
+    
+    with col5:
+        # Business Rating with color
+        rating_color_map = {
+            'green': '🟢',
+            'blue': '🔵', 
+            'orange': '🟠',
+            'red': '🔴'
+        }
+        st.metric(
+            "Business Rating",
+            f"{rating_color_map.get(metrics['rating_color'], '⚪')} {metrics['business_rating']}"
         )
     
     st.markdown("---")
@@ -477,7 +758,45 @@ def main():
         
         with col3:
             st.warning(f"**Interest Rate:** {interest_rate}% p.a.")
-            st.warning(f"**Payback Efficiency:** {metrics['profit_to_interest_ratio']:.2f}")
+            st.warning(f"**PE Ratio:** {metrics['pe_ratio']:.1f}%")
+    
+    # Business Intelligence Insights
+    st.subheader("🎯 Business Intelligence Insights")
+    
+    col1, col2, col3 = st.columns([1.2, 1.5, 1.3])
+    
+    with col1:
+        st.info(f"**PE Ratio Analysis:** {metrics['pe_ratio']:.1f}%")
+        if metrics['pe_ratio'] <= 10:
+            st.success("✅ Excellent: Low interest burden on customer")
+        elif metrics['pe_ratio'] <= 20:
+            st.info("ℹ️ Good: Reasonable interest burden")
+        elif metrics['pe_ratio'] <= 30:
+            st.warning("⚠️ Average: Moderate interest burden")
+        else:
+            st.error("❌ Poor: High interest burden on customer")
+    
+    with col2:
+        st.info(f"**Investment Efficiency:**\n₹{metrics['investment_efficiency']:.0f} per ₹100 profit")
+        if metrics['investment_efficiency'] <= 50:
+            st.success("✅ Excellent:\nLow investment required for high profit")
+        elif metrics['investment_efficiency'] <= 100:
+            st.info("ℹ️ Good:\nReasonable investment for profit")
+        elif metrics['investment_efficiency'] <= 200:
+            st.warning("⚠️ Average:\nHigher investment needed")
+        else:
+            st.error("❌ Poor:\nVery high investment required")
+    
+    with col3:
+        st.info(f"**Business Rating:** {metrics['business_rating']}")
+        if metrics['business_rating'] == "Excellent":
+            st.success("✅ This customer is highly profitable and low risk")
+        elif metrics['business_rating'] == "Good":
+            st.info("ℹ️ This customer is profitable with manageable risk")
+        elif metrics['business_rating'] == "Average":
+            st.warning("⚠️ This customer needs monitoring")
+        else:
+            st.error("❌ Consider reducing credit limit or improving terms")
     
     with tab2:
         st.subheader("Charts & Trends")
@@ -492,6 +811,18 @@ def main():
                 st.plotly_chart(charts['balance_trend'], use_container_width=True)
             with col2:
                 st.plotly_chart(charts['interest_trend'], use_container_width=True)
+        
+        # Payment Time Analysis Charts
+        if 'payment_time_analysis' in charts:
+            st.subheader("🕒 Payment Time Analysis")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.plotly_chart(charts['payment_time_analysis'], use_container_width=True)
+            with col2:
+                st.plotly_chart(charts['payment_time_distribution'], use_container_width=True)
+        
+        if 'debt_status_pie' in charts:
+            st.plotly_chart(charts['debt_status_pie'], use_container_width=True)
         
         if 'profit_interest_comparison' in charts:
             st.plotly_chart(charts['profit_interest_comparison'], use_container_width=True)
@@ -515,6 +846,39 @@ def main():
             st.write(f"• Total Sales Amount: {format_currency(selected_customer['sales_data']['summary']['total_amount'])}")
             st.write(f"• Total Quantity Sold: {metrics['total_quantity_sale']:,.2f} L")
             st.write(f"• Unique Vehicles: {selected_customer['sales_data']['summary']['unique_vehicles']}")
+        
+        # Payment Time Analysis Table
+        if metrics['payment_analysis']:
+            st.write("**🕒 Payment Time Analysis:**")
+            
+            # Create payment analysis dataframe
+            payment_data = []
+            for debt in metrics['payment_analysis']:
+                payment_data.append({
+                    'Debt ID': debt['debt_id'],
+                    'Amount': format_currency(debt['amount']),
+                    'Date Created': debt['date_created'].strftime('%Y-%m-%d'),
+                    'Amount Paid': format_currency(debt['amount_paid']),
+                    'Amount Remaining': format_currency(debt['amount_remaining']),
+                    'Days to Pay': f"{debt['days_to_pay']:.0f}" if debt['days_to_pay'] is not None else "Unpaid",
+                    'Status': 'Paid' if debt['days_to_pay'] is not None else 'Unpaid',
+                    'Payment Dates': ', '.join([d.strftime('%Y-%m-%d') for d in debt['payment_dates']]) if debt['payment_dates'] else 'None'
+                })
+            
+            payment_df = pd.DataFrame(payment_data)
+            st.dataframe(payment_df, use_container_width=True, height=400)
+            
+            # Payment Summary Statistics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.info(f"**Total Debts:** {len(metrics['payment_analysis'])}")
+                st.info(f"**Paid Debts:** {len(metrics['paid_debts'])}")
+            with col2:
+                st.warning(f"**Unpaid Debts:** {len(metrics['unpaid_debts'])}")
+                st.warning(f"**Avg Payment Time:** {metrics['avg_payback_period']:.1f} days")
+            with col3:
+                st.success(f"**Max Payment Time:** {metrics['max_payment_time']:.0f} days")
+                st.success(f"**Min Payment Time:** {metrics['min_payment_time']:.0f} days")
         
         # Outstanding Analysis
         if not metrics['daily_summary'].empty:
@@ -544,7 +908,12 @@ def main():
                 'Average Outstanding (₹)': metrics['avg_outstanding'],
                 'High Outstanding (₹)': metrics['high_outstanding'],
                 'Average Payback Period (days)': metrics['avg_payback_period'],
-                'Profit to Interest Ratio': metrics['profit_to_interest_ratio'],
+                'PE Ratio (%)': metrics['pe_ratio'],
+                'Risk Score (0-100)': metrics['risk_score'],
+                'Investment Efficiency (₹ per ₹100 profit)': metrics['investment_efficiency'],
+                'Profitability Score (0-100)': metrics['profitability_score'],
+                'ROI (%)': metrics['roi'],
+                'Business Rating': metrics['business_rating'],
                 'Actual Profit (₹)': metrics['actual_profit'],
                 'Net Profit (₹)': metrics['net_profit']
             }
@@ -567,6 +936,57 @@ def main():
                     label="📈 Download Daily Outstanding Data (CSV)",
                     data=daily_data,
                     file_name=f"{selected_customer['customer_name']}_daily_outstanding.csv",
+                    mime="text/csv"
+                )
+        
+        # Export Payment Time Analysis
+        if metrics['payment_analysis']:
+            st.subheader("🕒 Payment Time Analysis Export")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Export payment analysis data
+                payment_data = []
+                for debt in metrics['payment_analysis']:
+                    payment_data.append({
+                        'Debt ID': debt['debt_id'],
+                        'Amount': debt['amount'],
+                        'Date Created': debt['date_created'].strftime('%Y-%m-%d'),
+                        'Amount Paid': debt['amount_paid'],
+                        'Amount Remaining': debt['amount_remaining'],
+                        'Days to Pay': debt['days_to_pay'] if debt['days_to_pay'] is not None else 'Unpaid',
+                        'Status': 'Paid' if debt['days_to_pay'] is not None else 'Unpaid',
+                        'Payment Dates': ', '.join([d.strftime('%Y-%m-%d') for d in debt['payment_dates']]) if debt['payment_dates'] else 'None'
+                    })
+                
+                payment_df = pd.DataFrame(payment_data)
+                payment_csv = payment_df.to_csv(index=False)
+                st.download_button(
+                    label="🕒 Download Payment Time Analysis (CSV)",
+                    data=payment_csv,
+                    file_name=f"{selected_customer['customer_name']}_payment_analysis.csv",
+                    mime="text/csv"
+                )
+            
+            with col2:
+                # Export payment summary
+                summary_data = {
+                    'Customer Name': selected_customer['customer_name'],
+                    'Total Debts': len(metrics['payment_analysis']),
+                    'Paid Debts': len(metrics['paid_debts']),
+                    'Unpaid Debts': len(metrics['unpaid_debts']),
+                    'Average Payment Time (days)': metrics['avg_payback_period'],
+                    'Max Payment Time (days)': metrics['max_payment_time'],
+                    'Min Payment Time (days)': metrics['min_payment_time'],
+                    'Payment Rate (%)': (len(metrics['paid_debts']) / len(metrics['payment_analysis']) * 100) if metrics['payment_analysis'] else 0
+                }
+                
+                summary_df = pd.DataFrame([summary_data])
+                summary_csv = summary_df.to_csv(index=False)
+                st.download_button(
+                    label="📊 Download Payment Summary (CSV)",
+                    data=summary_csv,
+                    file_name=f"{selected_customer['customer_name']}_payment_summary.csv",
                     mime="text/csv"
                 )
 

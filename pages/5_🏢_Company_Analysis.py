@@ -197,8 +197,87 @@ def merge_customer_data(ledger_customers, sales_customers):
     
     return merged_data
 
+def calculate_payment_time_analysis(ledger_data):
+    """Calculate detailed payment time analysis using FIFO logic"""
+    transactions_df = pd.DataFrame(ledger_data['transactions'])
+    transactions_df['date'] = pd.to_datetime(transactions_df['date'])
+    
+    # Sort by date to ensure chronological order
+    transactions_df = transactions_df.sort_values('date').reset_index(drop=True)
+    
+    # Track individual debts and their payment status
+    debt_queue = []  # FIFO queue of outstanding debts
+    payment_analysis = []  # Store payment time analysis
+    
+    # Process opening balance as first debt if it exists
+    opening_balance = ledger_data['opening_balance']['amount']
+    if opening_balance > 0:
+        debt_queue.append({
+            'debt_id': 'opening_balance',
+            'amount': opening_balance,
+            'date_created': transactions_df['date'].iloc[0],
+            'amount_paid': 0,
+            'amount_remaining': opening_balance,
+            'payment_dates': [],
+            'days_to_pay': None
+        })
+    
+    # Process each transaction
+    for idx, row in transactions_df.iterrows():
+        current_date = row['date']
+        debit_amount = row['debit']
+        credit_amount = row['credit']
+        
+        # Add new debt if there's a debit
+        if debit_amount > 0:
+            debt_queue.append({
+                'debt_id': f'debt_{idx}',
+                'amount': debit_amount,
+                'date_created': current_date,
+                'amount_paid': 0,
+                'amount_remaining': debit_amount,
+                'payment_dates': [],
+                'days_to_pay': None
+            })
+        
+        # Process payment if there's a credit
+        if credit_amount > 0:
+            remaining_payment = credit_amount
+            
+            # Apply payment using FIFO (First In, First Out)
+            while remaining_payment > 0 and debt_queue:
+                current_debt = debt_queue[0]
+                
+                if current_debt['amount_remaining'] <= remaining_payment:
+                    # This debt is fully paid
+                    payment_amount = current_debt['amount_remaining']
+                    current_debt['amount_paid'] += payment_amount
+                    current_debt['amount_remaining'] = 0
+                    current_debt['payment_dates'].append(current_date)
+                    current_debt['days_to_pay'] = (current_date - current_debt['date_created']).days
+                    
+                    # Move to completed analysis
+                    payment_analysis.append(current_debt.copy())
+                    
+                    # Remove from queue
+                    debt_queue.pop(0)
+                    remaining_payment -= payment_amount
+                    
+                else:
+                    # Partial payment on this debt
+                    current_debt['amount_paid'] += remaining_payment
+                    current_debt['amount_remaining'] -= remaining_payment
+                    current_debt['payment_dates'].append(current_date)
+                    remaining_payment = 0
+    
+    # Add any remaining unpaid debts
+    for debt in debt_queue:
+        payment_analysis.append(debt)
+    
+    return payment_analysis
+
 def calculate_customer_metrics(merged_customer, profit_margins, interest_rate, fy_start_date=None, fy_end_date=None):
-    """Calculate comprehensive metrics for a single customer"""
+    """Calculate comprehensive metrics for a single customer with business intelligence"""
     ledger_data = merged_customer['ledger_data']
     sales_data = merged_customer['sales_data']
     
@@ -268,6 +347,53 @@ def calculate_customer_metrics(merged_customer, profit_margins, interest_rate, f
         avg_payback_period = 0
         total_repayments = 0
     
+    # NEW: Business Intelligence Metrics
+    # 1. PE Ratio (Profit Efficiency Ratio)
+    pe_ratio = (total_interest / total_profit * 100) if total_profit > 0 else 0
+    
+    # 2. Payment Time Analysis
+    payment_analysis = calculate_payment_time_analysis(ledger_data) if ledger_transactions else []
+    paid_debts = [debt for debt in payment_analysis if debt['days_to_pay'] is not None]
+    unpaid_debts = [debt for debt in payment_analysis if debt['days_to_pay'] is None]
+    
+    avg_payment_time = np.mean([debt['days_to_pay'] for debt in paid_debts]) if paid_debts else 0
+    max_payment_time = max([debt['days_to_pay'] for debt in paid_debts]) if paid_debts else 0
+    min_payment_time = min([debt['days_to_pay'] for debt in paid_debts]) if paid_debts else 0
+    
+    # 3. Customer Risk Score (0-100, lower is better)
+    avg_payment_time_score = min(100, max(0, 100 - (avg_payment_time / 30 * 100)))  # Penalty for longer payment times
+    outstanding_ratio = (closing_balance / total_profit * 100) if total_profit > 0 else 0
+    outstanding_score = min(100, max(0, 100 - outstanding_ratio))  # Penalty for high outstanding
+    payment_rate_score = (len(paid_debts) / len(payment_analysis) * 100) if payment_analysis else 0
+    
+    risk_score = (avg_payment_time_score * 0.4 + outstanding_score * 0.4 + payment_rate_score * 0.2)
+    
+    # 4. Investment Efficiency Ratio
+    investment_efficiency = (closing_balance / total_profit * 100) if total_profit > 0 else 0
+    
+    # 5. Customer Profitability Score (0-100, higher is better)
+    profit_score = min(100, (total_profit / 100000 * 100))  # Normalize profit (₹1L = 100 points)
+    payment_behavior_score = min(100, max(0, 100 - (avg_payment_time / 30 * 50)))  # Payment time impact
+    profitability_score = (profit_score * 0.5 + payment_behavior_score * 0.3 + (100 - risk_score) * 0.2)
+    
+    # 6. Return on Investment (ROI) for this customer
+    total_investment = opening_balance + sum([debt['amount'] for debt in payment_analysis if debt['debt_id'] != 'opening_balance'])
+    roi = ((total_profit - total_interest) / total_investment * 100) if total_investment > 0 else 0
+    
+    # 7. Customer Business Value Rating
+    if profitability_score >= 80 and risk_score <= 30:
+        business_rating = "Excellent"
+        rating_color = "green"
+    elif profitability_score >= 60 and risk_score <= 50:
+        business_rating = "Good"
+        rating_color = "blue"
+    elif profitability_score >= 40 and risk_score <= 70:
+        business_rating = "Average"
+        rating_color = "orange"
+    else:
+        business_rating = "Poor"
+        rating_color = "red"
+    
     return {
         'customer_name': merged_customer['customer_name'],
         'total_profit': total_profit,
@@ -275,6 +401,13 @@ def calculate_customer_metrics(merged_customer, profit_margins, interest_rate, f
         'actual_profit': total_profit,
         'net_profit': total_profit - total_interest,
         'profit_interest_ratio': total_profit / total_interest if total_interest > 0 else 0,
+        'pe_ratio': pe_ratio,  # NEW
+        'risk_score': risk_score,  # NEW
+        'investment_efficiency': investment_efficiency,  # NEW
+        'profitability_score': profitability_score,  # NEW
+        'roi': roi,  # NEW
+        'business_rating': business_rating,  # NEW
+        'rating_color': rating_color,  # NEW
         'total_quantity': total_quantity,
         'total_sales_amount': total_sales_amount,
         'opening_balance': opening_balance,
@@ -282,25 +415,87 @@ def calculate_customer_metrics(merged_customer, profit_margins, interest_rate, f
         'avg_outstanding': avg_outstanding,
         'high_outstanding': high_outstanding,
         'avg_payback_period': avg_payback_period,
+        'avg_payment_time': avg_payment_time,  # NEW
+        'max_payment_time': max_payment_time,  # NEW
+        'min_payment_time': min_payment_time,  # NEW
         'total_repayments': total_repayments,
-        'total_transactions': merged_customer['total_transactions_ledger'] + merged_customer['total_transactions_sales']
+        'total_transactions': merged_customer['total_transactions_ledger'] + merged_customer['total_transactions_sales'],
+        'paid_debts_count': len(paid_debts),  # NEW
+        'unpaid_debts_count': len(unpaid_debts),  # NEW
+        'payment_rate': (len(paid_debts) / len(payment_analysis) * 100) if payment_analysis else 0  # NEW
     }
 
 def calculate_company_metrics(all_customer_metrics):
-    """Calculate company-wide aggregated metrics"""
+    """Calculate company-wide aggregated metrics with business intelligence"""
     if not all_customer_metrics:
         return {}
     
     df = pd.DataFrame(all_customer_metrics)
     
+    # Basic metrics
+    total_profit = df['total_profit'].sum()
+    total_interest = df['total_interest'].sum()
+    total_sales_amount = df['total_sales_amount'].sum()
+    
+    # NEW: Business Intelligence Company Metrics
+    # 1. Company PE Ratio
+    company_pe_ratio = (total_interest / total_profit * 100) if total_profit > 0 else 0
+    
+    # 2. Average Risk Score
+    avg_risk_score = df['risk_score'].mean()
+    
+    # 3. Average Investment Efficiency
+    avg_investment_efficiency = df['investment_efficiency'].mean()
+    
+    # 4. Average Profitability Score
+    avg_profitability_score = df['profitability_score'].mean()
+    
+    # 5. Average ROI
+    avg_roi = df['roi'].mean()
+    
+    # 6. Customer Segmentation
+    excellent_customers = len(df[df['business_rating'] == 'Excellent'])
+    good_customers = len(df[df['business_rating'] == 'Good'])
+    average_customers = len(df[df['business_rating'] == 'Average'])
+    poor_customers = len(df[df['business_rating'] == 'Poor'])
+    
+    # 7. Risk Distribution
+    low_risk_customers = len(df[df['risk_score'] <= 30])
+    medium_risk_customers = len(df[(df['risk_score'] > 30) & (df['risk_score'] <= 70)])
+    high_risk_customers = len(df[df['risk_score'] > 70])
+    
+    # 8. Payment Performance
+    avg_payment_time = df['avg_payment_time'].mean()
+    avg_payment_rate = df['payment_rate'].mean()
+    
+    # 9. Investment Analysis
+    total_investment = df['closing_balance'].sum()
+    investment_efficiency_ratio = (total_investment / total_profit * 100) if total_profit > 0 else 0
+    
     return {
-        'total_profit': df['total_profit'].sum(),
-        'total_interest': df['total_interest'].sum(),
+        'total_profit': total_profit,
+        'total_interest': total_interest,
         'actual_profit': df['actual_profit'].sum(),
         'net_profit': df['net_profit'].sum(),
-        'profit_interest_ratio': df['total_profit'].sum() / df['total_interest'].sum() if df['total_interest'].sum() > 0 else 0,
+        'profit_interest_ratio': total_profit / total_interest if total_interest > 0 else 0,
+        'company_pe_ratio': company_pe_ratio,  # NEW
+        'avg_risk_score': avg_risk_score,  # NEW
+        'avg_investment_efficiency': avg_investment_efficiency,  # NEW
+        'avg_profitability_score': avg_profitability_score,  # NEW
+        'avg_roi': avg_roi,  # NEW
+        'excellent_customers': excellent_customers,  # NEW
+        'good_customers': good_customers,  # NEW
+        'average_customers': average_customers,  # NEW
+        'poor_customers': poor_customers,  # NEW
+        'low_risk_customers': low_risk_customers,  # NEW
+        'medium_risk_customers': medium_risk_customers,  # NEW
+        'high_risk_customers': high_risk_customers,  # NEW
+        'avg_payment_time': avg_payment_time,  # NEW
+        'avg_payment_rate': avg_payment_rate,  # NEW
+        'total_investment': total_investment,  # NEW
+        'investment_efficiency_ratio': investment_efficiency_ratio,  # NEW
         'total_quantity': df['total_quantity'].sum(),
-        'total_sales_amount': df['total_sales_amount'].sum(),
+        'total_sales_amount': total_sales_amount,
         'avg_debt': df['closing_balance'].mean(),
         'avg_outstanding': df['avg_outstanding'].mean(),
         'highest_outstanding': df['high_outstanding'].max(),
@@ -541,8 +736,9 @@ def main():
     
     with col4:
         st.metric(
-            "Profit/Interest Ratio",
-            f"{company_metrics['profit_interest_ratio']:.2f}"
+            "Company PE Ratio",
+            f"{company_metrics['company_pe_ratio']:.1f}%",
+            help="Company-wide Profit Efficiency Ratio. Shows what percentage of your total profit goes to interest charges. Lower is better."
         )
     
     with col5:
@@ -563,34 +759,79 @@ def main():
     with col2:
         st.metric(
             "Avg Debt per Customer",
-            format_currency(company_metrics['avg_debt'])
+            format_currency(company_metrics['avg_debt']),
+            help="Average amount of money each customer owes you (closing balance). This is your total investment in customers."
         )
     
     with col3:
         st.metric(
             "Avg Outstanding",
-            format_currency(company_metrics['avg_outstanding'])
+            format_currency(company_metrics['avg_outstanding']),
+            help="Average outstanding balance across all customers over time. Shows how much money is typically tied up."
         )
     
     with col4:
         st.metric(
             "Highest Outstanding",
-            format_currency(company_metrics['highest_outstanding'])
+            format_currency(company_metrics['highest_outstanding']),
+            help="The highest outstanding amount any single customer has had. Shows your maximum exposure to one customer."
         )
     
     with col5:
         st.metric(
             "Avg Payback Period",
-            f"{company_metrics['avg_payback_period']:.1f} days"
+            f"{company_metrics['avg_payback_period']:.1f} days",
+            help="Average number of days it takes customers to pay back their debts. Lower is better for cash flow."
+        )
+    
+    # Business Intelligence Metrics Row
+    st.markdown("### 🎯 Company Business Intelligence Overview")
+    col1, col2, col3, col4, col5 = st.columns([1.2, 1.2, 1.5, 1, 1.1])
+    
+    with col1:
+        st.metric(
+            "Avg Risk Score",
+            f"{company_metrics['avg_risk_score']:.0f}/100",
+            delta=f"{'Low Risk' if company_metrics['avg_risk_score'] <= 30 else 'High Risk' if company_metrics['avg_risk_score'] >= 70 else 'Medium Risk'}",
+            help="Average risk score across all customers (0-100, lower is better). Based on payment time, outstanding amount, and payment rate."
+        )
+    
+    with col2:
+        st.metric(
+            "Avg Profitability",
+            f"{company_metrics['avg_profitability_score']:.0f}/100",
+            help="Average profitability score across all customers (0-100, higher is better). Based on total profit, payment behavior, and risk level."
+        )
+    
+    with col3:
+        st.metric(
+            "Investment Efficiency",
+            f"₹{company_metrics['avg_investment_efficiency']:.0f}",
+            help="Average amount of money you need to invest (outstanding balance) to make ₹100 profit. Lower is better."
+        )
+    
+    with col4:
+        st.metric(
+            "Avg ROI",
+            f"{company_metrics['avg_roi']:.1f}%",
+            help="Average Return on Investment across all customers. Shows how much profit you get back for every ₹100 invested."
+        )
+    
+    with col5:
+        st.metric(
+            "Payment Rate",
+            f"{company_metrics['avg_payment_rate']:.1f}%",
+            help="Average percentage of debts that customers have paid off. Higher percentage means better payment behavior."
         )
     
     st.markdown("---")
     
     # Detailed Analysis Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Company Overview", 
         "🥧 Customer Contributions", 
         "🏆 Top & Worst Customers", 
+        "🎯 Business Intelligence",
         "📊 Detailed Analysis", 
         "📄 Export Data"
     ])
@@ -704,6 +945,171 @@ def main():
             st.dataframe(longest_payback, use_container_width=True)
     
     with tab4:
+        st.subheader("🎯 Business Intelligence & Customer Segmentation")
+        
+        # Customer Segmentation Overview
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "🟢 Excellent Customers",
+                company_metrics['excellent_customers'],
+                help="Customers with high profitability (≥80/100) and low risk (≤30/100). These are your best customers - consider increasing their credit limits."
+            )
+        
+        with col2:
+            st.metric(
+                "🔵 Good Customers", 
+                company_metrics['good_customers'],
+                help="Customers with good profitability (≥60/100) and manageable risk (≤50/100). These are solid customers with good potential."
+            )
+        
+        with col3:
+            st.metric(
+                "🟠 Average Customers",
+                company_metrics['average_customers'],
+                help="Customers with average profitability (≥40/100) and moderate risk (≤70/100). These customers need monitoring and may need attention."
+            )
+        
+        with col4:
+            st.metric(
+                "🔴 Poor Customers",
+                company_metrics['poor_customers'],
+                help="Customers with low profitability (<40/100) or high risk (>70/100). Consider reducing their credit limits or improving payment terms."
+            )
+        
+        # Risk Distribution
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Risk Distribution")
+            risk_data = {
+                'Risk Level': ['Low Risk', 'Medium Risk', 'High Risk'],
+                'Count': [
+                    company_metrics['low_risk_customers'],
+                    company_metrics['medium_risk_customers'], 
+                    company_metrics['high_risk_customers']
+                ],
+                'Color': ['#2E8B57', '#FFA500', '#DC143C']
+            }
+            
+            fig_risk = px.bar(
+                risk_data,
+                x='Risk Level',
+                y='Count',
+                color='Risk Level',
+                color_discrete_sequence=['#2E8B57', '#FFA500', '#DC143C'],
+                title="Customer Risk Distribution"
+            )
+            st.plotly_chart(fig_risk, use_container_width=True)
+        
+        with col2:
+            st.subheader("Business Rating Distribution")
+            rating_data = {
+                'Rating': ['Excellent', 'Good', 'Average', 'Poor'],
+                'Count': [
+                    company_metrics['excellent_customers'],
+                    company_metrics['good_customers'],
+                    company_metrics['average_customers'],
+                    company_metrics['poor_customers']
+                ]
+            }
+            
+            fig_rating = px.pie(
+                rating_data,
+                values='Count',
+                names='Rating',
+                title="Customer Business Rating Distribution",
+                color_discrete_sequence=['#2E8B57', '#4169E1', '#FFA500', '#DC143C']
+            )
+            st.plotly_chart(fig_rating, use_container_width=True)
+        
+        # Company Performance Insights
+        st.subheader("📊 Company Performance Insights")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.info(f"**Company PE Ratio:** {company_metrics['company_pe_ratio']:.1f}%")
+            if company_metrics['company_pe_ratio'] <= 10:
+                st.success("✅ Excellent: Low interest burden across all customers")
+            elif company_metrics['company_pe_ratio'] <= 20:
+                st.info("ℹ️ Good: Reasonable interest burden")
+            elif company_metrics['company_pe_ratio'] <= 30:
+                st.warning("⚠️ Average: Moderate interest burden")
+            else:
+                st.error("❌ Poor: High interest burden across customers")
+        
+        with col2:
+            st.info(f"**Investment Efficiency:** ₹{company_metrics['investment_efficiency_ratio']:.0f} per ₹100 profit")
+            if company_metrics['investment_efficiency_ratio'] <= 50:
+                st.success("✅ Excellent: Low investment required for high profit")
+            elif company_metrics['investment_efficiency_ratio'] <= 100:
+                st.info("ℹ️ Good: Reasonable investment for profit")
+            elif company_metrics['investment_efficiency_ratio'] <= 200:
+                st.warning("⚠️ Average: Higher investment needed")
+            else:
+                st.error("❌ Poor: Very high investment required")
+        
+        with col3:
+            st.info(f"**Average Risk Score:** {company_metrics['avg_risk_score']:.0f}/100")
+            if company_metrics['avg_risk_score'] <= 30:
+                st.success("✅ Low Risk: Most customers are low risk")
+            elif company_metrics['avg_risk_score'] <= 70:
+                st.warning("⚠️ Medium Risk: Mixed risk profile")
+            else:
+                st.error("❌ High Risk: Many customers are high risk")
+        
+        # Customer Segmentation Table
+        st.subheader("📋 Customer Segmentation Details")
+        df = pd.DataFrame(all_customer_metrics)
+        
+        # Create segmentation table
+        segmentation_df = df[['customer_name', 'business_rating', 'risk_score', 'profitability_score', 'pe_ratio', 'roi', 'total_profit', 'net_profit']].copy()
+        segmentation_df = segmentation_df.sort_values('profitability_score', ascending=False)
+        
+        # Add color coding for business rating
+        def color_rating(val):
+            if val == 'Excellent':
+                return 'background-color: #d4edda'
+            elif val == 'Good':
+                return 'background-color: #d1ecf1'
+            elif val == 'Average':
+                return 'background-color: #fff3cd'
+            else:
+                return 'background-color: #f8d7da'
+        
+        styled_df = segmentation_df.style.applymap(color_rating, subset=['business_rating'])
+        st.dataframe(styled_df, use_container_width=True, height=400)
+        
+        # Actionable Insights
+        st.subheader("💡 Actionable Business Insights")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**🎯 Focus Areas:**")
+            if company_metrics['poor_customers'] > 0:
+                st.warning(f"• {company_metrics['poor_customers']} customers need immediate attention")
+            if company_metrics['high_risk_customers'] > 0:
+                st.warning(f"• {company_metrics['high_risk_customers']} high-risk customers require monitoring")
+            if company_metrics['company_pe_ratio'] > 25:
+                st.warning("• Consider reducing interest rates or improving payment terms")
+            if company_metrics['avg_payment_rate'] < 70:
+                st.warning("• Payment collection needs improvement")
+        
+        with col2:
+            st.write("**🚀 Growth Opportunities:**")
+            if company_metrics['excellent_customers'] > 0:
+                st.success(f"• {company_metrics['excellent_customers']} excellent customers - increase credit limits")
+            if company_metrics['low_risk_customers'] > company_metrics['high_risk_customers']:
+                st.success("• Good risk profile - consider expanding customer base")
+            if company_metrics['avg_roi'] > 50:
+                st.success("• Strong ROI - consider increasing investment in top customers")
+            if company_metrics['avg_profitability_score'] > 70:
+                st.success("• High overall profitability - maintain current strategy")
+    
+    with tab5:
         st.subheader("Detailed Analysis")
         
         # Profit vs Interest scatter plot
@@ -740,7 +1146,22 @@ def main():
                 'Total Interest (₹)': company_metrics['total_interest'],
                 'Actual Profit (₹)': company_metrics['actual_profit'],
                 'Net Profit (₹)': company_metrics['net_profit'],
-                'Profit Interest Ratio': company_metrics['profit_interest_ratio'],
+                'Company PE Ratio (%)': company_metrics['company_pe_ratio'],
+                'Average Risk Score (0-100)': company_metrics['avg_risk_score'],
+                'Average Investment Efficiency (₹ per ₹100 profit)': company_metrics['avg_investment_efficiency'],
+                'Average Profitability Score (0-100)': company_metrics['avg_profitability_score'],
+                'Average ROI (%)': company_metrics['avg_roi'],
+                'Excellent Customers': company_metrics['excellent_customers'],
+                'Good Customers': company_metrics['good_customers'],
+                'Average Customers': company_metrics['average_customers'],
+                'Poor Customers': company_metrics['poor_customers'],
+                'Low Risk Customers': company_metrics['low_risk_customers'],
+                'Medium Risk Customers': company_metrics['medium_risk_customers'],
+                'High Risk Customers': company_metrics['high_risk_customers'],
+                'Average Payment Time (days)': company_metrics['avg_payment_time'],
+                'Average Payment Rate (%)': company_metrics['avg_payment_rate'],
+                'Total Investment (₹)': company_metrics['total_investment'],
+                'Investment Efficiency Ratio (₹ per ₹100 profit)': company_metrics['investment_efficiency_ratio'],
                 'Total Product Sales (L)': company_metrics['total_quantity'],
                 'Total Sales Amount (₹)': company_metrics['total_sales_amount'],
                 'Average Debt (₹)': company_metrics['avg_debt'],
