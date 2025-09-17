@@ -141,6 +141,80 @@ def main():
     
     st.markdown("---")
     
+    # Financial Intelligence Section
+    st.subheader("💰 Financial Intelligence")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 💰 Financial Intelligence")
+        st.markdown("""
+        - Expense tracking & analysis
+        - Financial variance analysis
+        - Profit & Loss statements
+        - Break-even analysis
+        - Financial health indicators
+        - EBITDA-like calculations
+        """)
+        
+        if st.button("Open Financial Dashboard", use_container_width=True):
+            st.info("Please navigate to the Financial Intelligence page from the sidebar or use the direct link.")
+            st.markdown("[💰 Financial Intelligence](pages/6_💰_Financial_Intelligence.py)")
+    
+    with col2:
+        st.markdown("### 🤖 AI Assistant")
+        st.markdown("""
+        - AI-powered business insights
+        - Natural language queries
+        - Customer analysis
+        - Financial explanations
+        - Business recommendations
+        - Interactive Q&A
+        """)
+        
+        if st.button("Open AI Assistant", use_container_width=True):
+            st.info("Please navigate to the AI Assistant page from the sidebar or use the direct link.")
+            st.markdown("[🤖 AI Assistant](pages/7_🤖_AI_Assistant.py)")
+    
+    st.markdown("---")
+    
+    # Business Intelligence Section
+    st.subheader("📊 Business Intelligence")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Business Intelligence")
+        st.markdown("""
+        - Customer segmentation
+        - Risk assessment
+        - Investment efficiency
+        - Payment time analysis
+        - Business rating system
+        - Actionable insights
+        """)
+        
+        if st.button("Open BI Dashboard", use_container_width=True):
+            st.info("Please navigate to the Comprehensive Analysis page for business intelligence features.")
+            st.markdown("[📊 Business Intelligence](pages/4_📊_Comprehensive_Customer_Analysis.py)")
+    
+    with col2:
+        st.markdown("### 🎯 Quick AI Queries")
+        st.markdown("""
+        **Try asking the AI:**
+        • "Show me Kush Structure's performance"
+        • "What is investment efficiency?"
+        • "Explain PE ratio"
+        • "Give me business advice"
+        • "What's my business overview?"
+        """)
+        
+        if st.button("Ask AI Now", use_container_width=True):
+            st.info("Please navigate to the AI Assistant page to start chatting with the AI.")
+            st.markdown("[🤖 Start AI Chat](pages/7_🤖_AI_Assistant.py)")
+    
+    st.markdown("---")
+    
     # Quick stats
     if ledger_customers:
         st.subheader("📈 Quick Statistics")
